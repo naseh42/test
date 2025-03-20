@@ -26,6 +26,15 @@ if ! cp -r ./backend/* $PROJECT_DIR/; then
 fi
 echo "تمام فایل‌ها به مسیر $PROJECT_DIR منتقل شدند!"
 
+# ایجاد فایل requirements.txt
+echo "ایجاد فایل requirements.txt..."
+cat <<EOL > $PROJECT_DIR/requirements.txt
+fastapi
+sqlalchemy
+pydantic
+uvicorn
+EOL
+
 # تنظیم متغیر محیطی PYTHONPATH
 echo "تنظیم PYTHONPATH..."
 export PYTHONPATH=/opt
@@ -64,8 +73,42 @@ echo "ایجاد کانفیگ پیش‌فرض Xray..."
 mkdir -p /usr/local/etc/xray || { echo "خطا در ایجاد دایرکتوری کانفیگ Xray"; exit 1; }
 cat <<EOL > /usr/local/etc/xray/config.json
 {
-  "inbounds": [],
-  "outbounds": []
+  "log": {
+    "loglevel": "info"
+  },
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "UUID-1",
+            "level": 0,
+            "email": "test@example.com"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/path/to/cert.crt",
+              "keyFile": "/path/to/cert.key"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
 }
 EOL
 
@@ -88,8 +131,23 @@ cat <<EOL > /usr/local/etc/sing-box/config.json
   "log": {
     "level": "info"
   },
-  "inbounds": [],
-  "outbounds": []
+  "inbounds": [
+    {
+      "type": "vmess",
+      "listen": "0.0.0.0",
+      "port": 10086,
+      "users": [
+        {
+          "id": "UUID-2"
+        }
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct"
+    }
+  ]
 }
 EOL
 
