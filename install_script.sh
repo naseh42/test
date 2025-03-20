@@ -113,42 +113,52 @@ cat <<EOL > /usr/local/etc/xray/config.json
 EOL
 
 # نصب و پیکربندی WireGuard
-echo "نصب WireGuard..."
+echo "نصب و پیکربندی WireGuard..."
 apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
 
-# ایجاد فایل کانفیگ WireGuard
-echo "ایجاد فایل کانفیگ WireGuard..."
+# تولید کلیدهای WireGuard
+echo "تولید کلیدهای WireGuard..."
+WG_PRIVATE_KEY=$(wg genkey)
+WG_PUBLIC_KEY=$(echo "$WG_PRIVATE_KEY" | wg pubkey)
+WG_CLIENT_PRIVATE_KEY=$(wg genkey)
+WG_CLIENT_PUBLIC_KEY=$(echo "$WG_CLIENT_PRIVATE_KEY" | wg pubkey)
+
+# ایجاد فایل کانفیگ WireGuard برای سرور
+echo "ایجاد فایل کانفیگ برای سرور WireGuard..."
 cat <<EOL > /etc/wireguard/wg0.conf
 [Interface]
-PrivateKey = <SERVER_PRIVATE_KEY>
+PrivateKey = $WG_PRIVATE_KEY
 Address = 10.0.0.1/24
 ListenPort = 51820
 PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
 [Peer]
-PublicKey = <CLIENT_PUBLIC_KEY>
+PublicKey = $WG_CLIENT_PUBLIC_KEY
 AllowedIPs = 10.0.0.2/32
 EOL
+
 chmod 600 /etc/wireguard/wg0.conf
+
+# ایجاد فایل کانفیگ WireGuard برای کلاینت
+echo "ایجاد فایل کانفیگ برای کلاینت WireGuard..."
+cat <<EOL > ~/wg-client.conf
+[Interface]
+PrivateKey = $WG_CLIENT_PRIVATE_KEY
+Address = 10.0.0.2/24
+DNS = 1.1.1.1
+
+[Peer]
+PublicKey = $WG_PUBLIC_KEY
+Endpoint = $(curl -s ifconfig.me):51820
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+EOL
+
+# راه‌اندازی سرویس‌های Xray و WireGuard
+echo "راه‌اندازی سرویس Xray و WireGuard..."
 systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
-
-# راه‌اندازی سرویس Xray
-echo "ایجاد سرویس Xray..."
-cat <<EOL > /etc/systemd/system/xray.service
-[Unit]
-Description=Xray Service
-After=network.target
-
-[Service]
-User=root
-ExecStart=/usr/local/bin/xray -config /usr/local/etc/xray/config.json
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOL
 
 systemctl daemon-reload
 systemctl enable xray.service
@@ -158,3 +168,4 @@ systemctl start xray.service || { echo "خطا در راه‌اندازی Xray";
 deactivate
 
 echo "نصب و پیکربندی پروژه با موفقیت انجام شد!"
+echo "فایل کانفیگ کلاینت WireGuard در مسیر '~/wg-client.conf' ذخیره شد."
