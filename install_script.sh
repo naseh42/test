@@ -112,44 +112,30 @@ cat <<EOL > /usr/local/etc/xray/config.json
 }
 EOL
 
-# نصب و پیکربندی Sing-box
-echo "نصب Sing-box..."
-wget --header="Authorization: token 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" -O /tmp/sing-box-linux-amd64.tar.gz "https://objects.githubusercontent.com/github-production-release-asset-2e65be/509091576/c8690777-921e-452d-891d-d7422baac40b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20250320%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250320T221427Z&X-Amz-Expires=300&X-Amz-Signature=64fbbbdc821bbcf3e4d983d311b97d2e5b1b6ad6b7ad79804b57b3f9e0198c24&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3Dsing-box-1.11.5-linux-amd64.tar.gz&response-content-type=application%2Foctet-stream" || { echo "خطا در دانلود Sing-box"; exit 1; }
+# نصب و پیکربندی WireGuard
+echo "نصب WireGuard..."
+apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
 
-tar -xvf /tmp/sing-box-linux-amd64.tar.gz -C /usr/local/bin/ || { echo "خطا در استخراج Sing-box"; exit 1; }
-mv /usr/local/bin/sing-box-1.11.5-linux-amd64/sing-box /usr/local/bin/ || { echo "خطا در انتقال Sing-box به مسیر اجرایی"; exit 1; }
-chmod +x /usr/local/bin/sing-box || { echo "خطا در تنظیم مجوزهای اجرایی"; exit 1; }
+# ایجاد فایل کانفیگ WireGuard
+echo "ایجاد فایل کانفیگ WireGuard..."
+cat <<EOL > /etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = <SERVER_PRIVATE_KEY>
+Address = 10.0.0.1/24
+ListenPort = 51820
+PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
-# ایجاد کانفیگ پیش‌فرض برای Sing-box
-echo "ایجاد کانفیگ پیش‌فرض Sing-box..."
-mkdir -p /usr/local/etc/sing-box || { echo "خطا در ایجاد دایرکتوری کانفیگ Sing-box"; exit 1; }
-cat <<EOL > /usr/local/etc/sing-box/config.json
-{
-  "log": {
-    "level": "info"
-  },
-  "inbounds": [
-    {
-      "type": "vmess",
-      "listen": "0.0.0.0",
-      "port": 10086,
-      "users": [
-        {
-          "id": "UUID-2"
-        }
-      ]
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct"
-    }
-  ]
-}
+[Peer]
+PublicKey = <CLIENT_PUBLIC_KEY>
+AllowedIPs = 10.0.0.2/32
 EOL
+chmod 600 /etc/wireguard/wg0.conf
+systemctl enable wg-quick@wg0
+systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
 
-# راه‌اندازی سرویس‌های Xray و Sing-box
-echo "ایجاد سرویس Xray و Sing-box..."
+# راه‌اندازی سرویس Xray
+echo "ایجاد سرویس Xray..."
 cat <<EOL > /etc/systemd/system/xray.service
 [Unit]
 Description=Xray Service
@@ -164,23 +150,9 @@ Restart=always
 WantedBy=multi-user.target
 EOL
 
-cat <<EOL > /etc/systemd/system/sing-box.service
-[Unit]
-Description=Sing-box Service
-After=network.target
-
-[Service]
-User=root
-ExecStart=/usr/local/bin/sing-box run -c /usr/local/etc/sing-box/config.json
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
 systemctl daemon-reload
-systemctl enable xray.service sing-box.service
-systemctl start xray.service sing-box.service || { echo "خطا در راه‌اندازی سرویس‌ها"; exit 1; }
+systemctl enable xray.service
+systemctl start xray.service || { echo "خطا در راه‌اندازی Xray"; exit 1; }
 
 # غیر فعال‌سازی محیط مجازی
 deactivate
