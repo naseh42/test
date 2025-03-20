@@ -114,16 +114,18 @@ EOL
 
 # نصب و پیکربندی Sing-box
 echo "نصب Sing-box..."
-ASSET_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.assets[] | select(.name == "sing-box-1.11.5-linux-amd64.tar.gz").browser_download_url')
+TOKEN="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"
+ASSET_URL=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.assets[] | select(.name == "sing-box-1.11.5-linux-amd64.tar.gz").browser_download_url')
 
 if [ -z "$ASSET_URL" ]; then
     echo "خطا در یافتن لینک دانلود Sing-box"
     exit 1
 fi
 
-wget -O /tmp/sing-box-linux-amd64.tar.gz "$ASSET_URL" || { echo "خطا در دانلود Sing-box"; exit 1; }
+wget --header="Authorization: token $TOKEN" -O /tmp/sing-box-linux-amd64.tar.gz "$ASSET_URL" || { echo "خطا در دانلود Sing-box"; exit 1; }
 tar -xvf /tmp/sing-box-linux-amd64.tar.gz -C /usr/local/bin/ || { echo "خطا در استخراج Sing-box"; exit 1; }
-chmod +x /usr/local/bin/sing-box
+mv /usr/local/bin/sing-box-1.11.5-linux-amd64/sing-box /usr/local/bin/ || { echo "خطا در انتقال Sing-box به مسیر اجرایی"; exit 1; }
+chmod +x /usr/local/bin/sing-box || { echo "خطا در تنظیم مجوزهای اجرایی"; exit 1; }
 
 # ایجاد کانفیگ پیش‌فرض برای Sing-box
 echo "ایجاد کانفیگ پیش‌فرض Sing-box..."
