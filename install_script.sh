@@ -114,15 +114,8 @@ EOL
 
 # نصب و پیکربندی Sing-box
 echo "نصب Sing-box..."
-TOKEN="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"
-ASSET_URL=$(curl -s -H "Authorization: token $TOKEN" https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.assets[] | select(.name == "sing-box-1.11.5-linux-amd64.tar.gz").browser_download_url')
+wget -O /tmp/sing-box-linux-amd64.tar.gz "https://objects.githubusercontent.com/github-production-release-asset-2e65be/509091576/c8690777-921e-452d-891d-d7422baac40b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20250320%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250320T215015Z&X-Amz-Expires=300&X-Amz-Signature=ca1404e07bf5321f0647eb20ee25ad593fb571e661c9f07a1552118e30bd7006&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3Dsing-box-1.11.5-linux-amd64.tar.gz&response-content-type=application%2Foctet-stream" || { echo "خطا در دانلود Sing-box"; exit 1; }
 
-if [ -z "$ASSET_URL" ]; then
-    echo "خطا در یافتن لینک دانلود Sing-box"
-    exit 1
-fi
-
-wget --header="Authorization: token $TOKEN" -O /tmp/sing-box-linux-amd64.tar.gz "$ASSET_URL" || { echo "خطا در دانلود Sing-box"; exit 1; }
 tar -xvf /tmp/sing-box-linux-amd64.tar.gz -C /usr/local/bin/ || { echo "خطا در استخراج Sing-box"; exit 1; }
 mv /usr/local/bin/sing-box-1.11.5-linux-amd64/sing-box /usr/local/bin/ || { echo "خطا در انتقال Sing-box به مسیر اجرایی"; exit 1; }
 chmod +x /usr/local/bin/sing-box || { echo "خطا در تنظیم مجوزهای اجرایی"; exit 1; }
@@ -154,28 +147,6 @@ cat <<EOL > /usr/local/etc/sing-box/config.json
   ]
 }
 EOL
-
-# نصب و پیکربندی WireGuard
-echo "نصب WireGuard..."
-apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
-
-# ایجاد فایل کانفیگ WireGuard
-echo "ایجاد فایل کانفیگ WireGuard..."
-cat <<EOL > /etc/wireguard/wg0.conf
-[Interface]
-PrivateKey = <SERVER_PRIVATE_KEY>
-Address = 10.0.0.1/24
-ListenPort = 51820
-PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
-
-[Peer]
-PublicKey = <CLIENT_PUBLIC_KEY>
-AllowedIPs = 10.0.0.2/32
-EOL
-chmod 600 /etc/wireguard/wg0.conf
-systemctl enable wg-quick@wg0
-systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
 
 # راه‌اندازی سرویس‌های Xray و Sing-box
 echo "ایجاد سرویس Xray و Sing-box..."
