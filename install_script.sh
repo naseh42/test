@@ -6,7 +6,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo "شروع نصب پروژه..."
+echo "شروع نصب و پیکربندی پروژه..."
 
 # نصب ابزارهای مورد نیاز
 echo "نصب ابزارهای ضروری..."
@@ -68,6 +68,22 @@ wget -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/$XRAY_
 unzip -o /tmp/xray.zip -d /usr/local/bin/ || { echo "خطا در استخراج Xray"; exit 1; }
 chmod +x /usr/local/bin/xray
 
+# ایجاد فایل سرویس برای Xray
+echo "ایجاد فایل سرویس Xray..."
+cat <<EOL > /etc/systemd/system/xray.service
+[Unit]
+Description=Xray Service
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/xray -config /usr/local/etc/xray/config.json
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
 # ایجاد کانفیگ پیش‌فرض برای Xray
 echo "ایجاد کانفیگ پیش‌فرض Xray..."
 mkdir -p /usr/local/etc/xray || { echo "خطا در ایجاد دایرکتوری کانفیگ Xray"; exit 1; }
@@ -112,8 +128,14 @@ cat <<EOL > /usr/local/etc/xray/config.json
 }
 EOL
 
+# بارگذاری فایل سرویس و راه‌اندازی Xray
+echo "راه‌اندازی سرویس Xray..."
+systemctl daemon-reload
+systemctl enable xray.service
+systemctl start xray.service || { echo "خطا در راه‌اندازی Xray"; exit 1; }
+
 # نصب و پیکربندی WireGuard
-echo "نصب و پیکربندی WireGuard..."
+echo "نصب WireGuard..."
 apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
 
 # تولید کلیدهای WireGuard
@@ -155,17 +177,13 @@ AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 EOL
 
-# راه‌اندازی سرویس‌های Xray و WireGuard
-echo "راه‌اندازی سرویس Xray و WireGuard..."
+# راه‌اندازی سرویس WireGuard
+echo "راه‌اندازی سرویس WireGuard..."
 systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
-
-systemctl daemon-reload
-systemctl enable xray.service
-systemctl start xray.service || { echo "خطا در راه‌اندازی Xray"; exit 1; }
 
 # غیر فعال‌سازی محیط مجازی
 deactivate
 
-echo "نصب و پیکربندی پروژه با موفقیت انجام شد!"
+echo "پیکربندی با موفقیت انجام شد!"
 echo "فایل کانفیگ کلاینت WireGuard در مسیر '~/wg-client.conf' ذخیره شد."
