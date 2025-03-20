@@ -3,100 +3,153 @@
 # بررسی دسترسی‌های root
 if [ "$EUID" -ne 0 ]; then
     echo "لطفاً این اسکریپت را با دسترسی‌های root اجرا کنید."
-    exit
+    exit 1
 fi
 
 echo "شروع نصب پروژه..."
 
 # نصب ابزارهای مورد نیاز
-echo "نصب Python و pip..."
-apt update && apt install -y python3 python3-pip
+echo "نصب ابزارهای ضروری..."
+apt update && apt install -y python3 python3-pip sqlite3 unzip jq curl wget wireguard-tools || { echo "خطا در نصب ابزارهای ضروری"; exit 1; }
 
-echo "نصب SQLite برای مدیریت پایگاه داده..."
-apt install -y sqlite3
+# نصب virtualenv برای مدیریت محیط مجازی
+echo "نصب virtualenv..."
+pip3 install virtualenv || { echo "خطا در نصب virtualenv"; exit 1; }
 
-echo "نصب virtualenv برای مدیریت محیط مجازی..."
-pip3 install virtualenv
-
-# انتقال فایل‌ها به مسیر مناسب
-echo "انتقال فایل‌های کلون شده..."
+# انتقال فایل‌های پروژه
+echo "انتقال فایل‌های پروژه..."
 PROJECT_DIR="/opt/backend"
 mkdir -p $PROJECT_DIR
-cp -r ./backend/* $PROJECT_DIR/
-
+if ! cp -r ./backend/* $PROJECT_DIR/; then
+    echo "خطا در انتقال فایل‌های پروژه"
+    exit 1
+fi
 echo "تمام فایل‌ها به مسیر $PROJECT_DIR منتقل شدند!"
 
-# ایجاد فایل requirements.txt (اگر قبلاً وجود ندارد)
-echo "ایجاد یا اطمینان از وجود فایل requirements.txt..."
-cat <<EOL > $PROJECT_DIR/requirements.txt
-fastapi
-sqlalchemy
-pydantic
-uvicorn
-EOL
-
-echo "فایل requirements.txt ایجاد شد!"
+# تنظیم متغیر محیطی PYTHONPATH
+echo "تنظیم PYTHONPATH..."
+export PYTHONPATH=/opt
+if ! grep -q "PYTHONPATH=/opt" ~/.bashrc; then
+    echo "export PYTHONPATH=/opt" >> ~/.bashrc
+fi
 
 # ایجاد محیط مجازی پایتون
-echo "ایجاد محیط مجازی پایتون..."
-cd $PROJECT_DIR
-virtualenv venv
+echo "ایجاد محیط مجازی..."
+cd $PROJECT_DIR || { echo "خطا: مسیر پروژه یافت نشد"; exit 1; }
+virtualenv venv || { echo "خطا در ایجاد محیط مجازی"; exit 1; }
+source venv/bin/activate || { echo "خطا در فعال‌سازی محیط مجازی"; exit 1; }
 
-echo "فعال‌سازی محیط مجازی..."
-source venv/bin/activate
+# نصب وابستگی‌ها
+echo "نصب وابستگی‌های پروژه..."
+pip install --upgrade pip || { echo "خطا در به‌روزرسانی pip"; exit 1; }
+pip install -r requirements.txt || { echo "خطا در نصب وابستگی‌ها"; exit 1; }
 
-# نصب وابستگی‌ها در محیط مجازی
-echo "نصب وابستگی‌های پروژه از فایل requirements.txt..."
-pip install -r requirements.txt
+# تنظیم دسترسی فایل‌ها و پوشه‌ها
+echo "تنظیم دسترسی‌ها..."
+chmod -R 755 $PROJECT_DIR || { echo "خطا در تنظیم دسترسی‌ها"; exit 1; }
 
-# ایجاد پایگاه داده و تنظیمات اولیه
-echo "ایجاد فایل پایگاه داده..."
-sqlite3 $PROJECT_DIR/test.db <<EOF
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    uuid TEXT NOT NULL UNIQUE,
-    traffic_limit INTEGER,
-    usage_duration INTEGER,
-    simultaneous_connections INTEGER
-);
-EOF
+# نصب و پیکربندی Xray
+echo "نصب Xray..."
+XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
+if [ -z "$XRAY_VERSION" ]; then
+    echo "خطا در دریافت نسخه Xray"
+    exit 1
+fi
+wget -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/Xray-linux-64.zip || { echo "خطا در دانلود Xray"; exit 1; }
+unzip -o /tmp/xray.zip -d /usr/local/bin/ || { echo "خطا در استخراج Xray"; exit 1; }
+chmod +x /usr/local/bin/xray
 
-echo "اضافه کردن اطلاعات پیش‌فرض به پایگاه داده..."
-sqlite3 $PROJECT_DIR/test.db <<EOF
-INSERT INTO users (username, uuid, traffic_limit, usage_duration, simultaneous_connections)
-VALUES ('admin', '123e4567-e89b-12d3-a456-426614174001', 1000, 365, 5)
-ON CONFLICT DO NOTHING;
-EOF
+# ایجاد کانفیگ پیش‌فرض برای Xray
+echo "ایجاد کانفیگ پیش‌فرض Xray..."
+mkdir -p /usr/local/etc/xray || { echo "خطا در ایجاد دایرکتوری کانفیگ Xray"; exit 1; }
+cat <<EOL > /usr/local/etc/xray/config.json
+{
+  "inbounds": [],
+  "outbounds": []
+}
+EOL
 
-echo "پایگاه داده با موفقیت پیکربندی شد!"
+# نصب و پیکربندی Sing-box
+echo "نصب Sing-box..."
+SINGBOX_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
+if [ -z "$SINGBOX_VERSION" ]; then
+    echo "خطا در دریافت نسخه Sing-box"
+    exit 1
+fi
+wget -O /tmp/singbox.tar.gz https://github.com/SagerNet/sing-box/releases/download/$SINGBOX_VERSION/sing-box-linux-amd64.tar.gz || { echo "خطا در دانلود Sing-box"; exit 1; }
+tar -xvf /tmp/singbox.tar.gz -C /usr/local/bin/ || { echo "خطا در استخراج Sing-box"; exit 1; }
+chmod +x /usr/local/bin/sing-box
 
-# ایجاد فایل Systemd برای اجرای دائمی
-echo "ایجاد فایل backend.service برای مدیریت اجرای دائمی..."
-cat <<EOL > /etc/systemd/system/backend.service
+# ایجاد کانفیگ پیش‌فرض برای Sing-box
+echo "ایجاد کانفیگ پیش‌فرض Sing-box..."
+mkdir -p /usr/local/etc/sing-box || { echo "خطا در ایجاد دایرکتوری کانفیگ Sing-box"; exit 1; }
+cat <<EOL > /usr/local/etc/sing-box/config.json
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [],
+  "outbounds": []
+}
+EOL
+
+# نصب و پیکربندی WireGuard
+echo "نصب WireGuard..."
+apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
+
+# ایجاد فایل کانفیگ WireGuard
+echo "ایجاد فایل کانفیگ WireGuard..."
+cat <<EOL > /etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = <SERVER_PRIVATE_KEY>
+Address = 10.0.0.1/24
+ListenPort = 51820
+PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+[Peer]
+PublicKey = <CLIENT_PUBLIC_KEY>
+AllowedIPs = 10.0.0.2/32
+EOL
+chmod 600 /etc/wireguard/wg0.conf
+systemctl enable wg-quick@wg0
+systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
+
+# راه‌اندازی سرویس‌های Xray و Sing-box
+echo "ایجاد سرویس Xray و Sing-box..."
+cat <<EOL > /etc/systemd/system/xray.service
 [Unit]
-Description=Backend FastAPI Application
+Description=Xray Service
 After=network.target
 
 [Service]
 User=root
-WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8000
+ExecStart=/usr/local/bin/xray -config /usr/local/etc/xray/config.json
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOL
 
-echo "فایل backend.service ایجاد شد!"
+cat <<EOL > /etc/systemd/system/sing-box.service
+[Unit]
+Description=Sing-box Service
+After=network.target
 
-# فعال‌سازی سرویس
-echo "فعال‌سازی و راه‌اندازی سرویس backend.service..."
+[Service]
+User=root
+ExecStart=/usr/local/bin/sing-box run -c /usr/local/etc/sing-box/config.json
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
 systemctl daemon-reload
-systemctl enable backend.service
-systemctl start backend.service
+systemctl enable xray.service sing-box.service
+systemctl start xray.service sing-box.service || { echo "خطا در راه‌اندازی سرویس‌ها"; exit 1; }
 
-echo "پروژه با موفقیت نصب و راه‌اندازی شد و به صورت خودکار اجرا می‌شود!"
-
-# غیر فعال‌سازی محیط مجازی پس از پایان نصب
+# غیر فعال‌سازی محیط مجازی
 deactivate
+
+echo "نصب و پیکربندی پروژه با موفقیت انجام شد!"
