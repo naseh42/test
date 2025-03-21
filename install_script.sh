@@ -10,7 +10,7 @@ echo "شروع نصب و پیکربندی پروژه..."
 
 # نصب ابزارهای ضروری
 echo "نصب ابزارهای مورد نیاز..."
-apt update && apt install -y python3 python3-pip sqlite3 unzip jq curl wget wireguard-tools uuid-runtime certbot || { echo "خطا در نصب ابزارهای ضروری"; exit 1; }
+apt update && apt install -y python3 python3-pip sqlite3 unzip jq curl wget wireguard-tools uuid-runtime openssl certbot || { echo "خطا در نصب ابزارهای ضروری"; exit 1; }
 
 # نصب virtualenv برای مدیریت محیط مجازی
 echo "نصب virtualenv..."
@@ -110,7 +110,8 @@ cat <<EOL > /usr/local/etc/xray/config.json
             "level": 0,
             "email": "default@example.com"
           }
-        ]
+        ],
+        "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
