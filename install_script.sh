@@ -63,34 +63,35 @@ pip install -r requirements.txt || { echo "خطا در نصب وابستگی‌�
 # تنظیم دسترسی‌ها
 chmod -R 755 $PROJECT_DIR || { echo "خطا در تنظیم دسترسی‌ها"; exit 1; }
 
-# نصب و پیکربندی Xray
-echo "نصب Xray..."
-XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
-if [ -z "$XRAY_VERSION" ]; then
-    echo "خطا در دریافت نسخه Xray"
-    exit 1
+# پرسش از کاربر درباره دامنه
+echo "آیا می‌خواهید دامنه‌ای اضافه کنید و برای آن گواهی TLS دریافت کنید؟ (y/n)"
+read -r ADD_DOMAIN
+
+if [[ "$ADD_DOMAIN" == "y" ]]; then
+    # دریافت نام دامنه از کاربر
+    echo "لطفاً دامنه مورد نظر را وارد کنید:"
+    read -r DOMAIN_NAME
+
+    # اجرای Certbot برای دریافت گواهی دامنه
+    echo "دریافت گواهی‌های TLS برای دامنه $DOMAIN_NAME..."
+    certbot certonly --standalone --agree-tos --email your-email@example.com -d "$DOMAIN_NAME" || { echo "خطا در دریافت گواهی‌های TLS"; exit 1; }
+
+    # تنظیم مسیر فایل‌های گواهی در کانفیگ Xray
+    CERT_PATH="/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem"
+    KEY_PATH="/etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem"
+else
+    echo "گواهی Self-Signed برای سرور ایجاد می‌شود..."
+
+    # ایجاد گواهی Self-Signed
+    mkdir -p /etc/selfsigned
+    openssl req -newkey rsa:2048 -nodes -keyout /etc/selfsigned/selfsigned.key -x509 -days 365 -out /etc/selfsigned/selfsigned.crt -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+
+    # تنظیم مسیر فایل‌های گواهی Self-Signed در کانفیگ Xray
+    CERT_PATH="/etc/selfsigned/selfsigned.crt"
+    KEY_PATH="/etc/selfsigned/selfsigned.key"
 fi
-wget -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/Xray-linux-64.zip || { echo "خطا در دانلود Xray"; exit 1; }
-unzip -o /tmp/xray.zip -d /usr/local/bin/ || { echo "خطا در استخراج Xray"; exit 1; }
-chmod +x /usr/local/bin/xray
 
-# ایجاد فایل سرویس برای Xray
-echo "ایجاد فایل سرویس Xray..."
-cat <<EOL > /etc/systemd/system/xray.service
-[Unit]
-Description=Xray Service
-After=network.target
-
-[Service]
-User=root
-ExecStart=/usr/local/bin/xray -config /usr/local/etc/xray/config.json
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-# ایجاد فایل کانفیگ Xray
+# ایجاد فایل کانفیگ Xray با مسیر فایل‌های گواهی
 echo "ایجاد فایل کانفیگ Xray..."
 mkdir -p /usr/local/etc/xray || { echo "خطا در ایجاد دایرکتوری کانفیگ Xray"; exit 1; }
 cat <<EOL > /usr/local/etc/xray/config.json
@@ -117,8 +118,8 @@ cat <<EOL > /usr/local/etc/xray/config.json
         "tlsSettings": {
           "certificates": [
             {
-              "certificateFile": "/etc/letsencrypt/live/yourdomain.com/fullchain.pem",
-              "keyFile": "/etc/letsencrypt/live/yourdomain.com/privkey.pem"
+              "certificateFile": "$CERT_PATH",
+              "keyFile": "$KEY_PATH"
             }
           ]
         }
@@ -133,10 +134,6 @@ cat <<EOL > /usr/local/etc/xray/config.json
   ]
 }
 EOL
-
-# دریافت گواهی‌های TLS
-echo "دریافت گواهی‌های TLS..."
-certbot certonly --standalone --agree-tos --email your-email@example.com -d yourdomain.com || { echo "خطا در دریافت گواهی‌های TLS"; exit 1; }
 
 # پیکربندی و راه‌اندازی WireGuard
 echo "ایجاد فایل کانفیگ WireGuard..."
