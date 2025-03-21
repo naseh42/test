@@ -8,23 +8,30 @@ fi
 
 echo "شروع نصب و پیکربندی پروژه..."
 
-# نصب ابزارهای مورد نیاز
-echo "نصب ابزارهای ضروری..."
-apt update && apt install -y python3 python3-pip sqlite3 unzip jq curl wget wireguard-tools || { echo "خطا در نصب ابزارهای ضروری"; exit 1; }
+# نصب ابزارهای ضروری
+echo "نصب ابزارهای مورد نیاز..."
+apt update && apt install -y python3 python3-pip sqlite3 unzip jq curl wget wireguard-tools uuid-runtime certbot || { echo "خطا در نصب ابزارهای ضروری"; exit 1; }
 
 # نصب virtualenv برای مدیریت محیط مجازی
 echo "نصب virtualenv..."
 pip3 install virtualenv || { echo "خطا در نصب virtualenv"; exit 1; }
 
-# انتقال فایل‌های پروژه
-echo "انتقال فایل‌های پروژه..."
+# تنظیم دایرکتوری پروژه
 PROJECT_DIR="/opt/backend"
 mkdir -p $PROJECT_DIR
+echo "انتقال فایل‌های پروژه..."
 if ! cp -r ./backend/* $PROJECT_DIR/; then
     echo "خطا در انتقال فایل‌های پروژه"
     exit 1
 fi
-echo "تمام فایل‌ها به مسیر $PROJECT_DIR منتقل شدند!"
+
+# تولید UUID یکتا برای کانفیگ Xray و WireGuard
+echo "تولید UUID و کلیدهای WireGuard..."
+UUID=$(uuidgen)
+WG_PRIVATE_KEY=$(wg genkey)
+WG_PUBLIC_KEY=$(echo "$WG_PRIVATE_KEY" | wg pubkey)
+WG_CLIENT_PRIVATE_KEY=$(wg genkey)
+WG_CLIENT_PUBLIC_KEY=$(echo "$WG_CLIENT_PRIVATE_KEY" | wg pubkey)
 
 # ایجاد فایل requirements.txt
 echo "ایجاد فایل requirements.txt..."
@@ -35,7 +42,7 @@ pydantic
 uvicorn
 EOL
 
-# تنظیم متغیر محیطی PYTHONPATH
+# تنظیم PYTHONPATH
 echo "تنظیم PYTHONPATH..."
 export PYTHONPATH=/opt
 if ! grep -q "PYTHONPATH=/opt" ~/.bashrc; then
@@ -53,8 +60,7 @@ echo "نصب وابستگی‌های پروژه..."
 pip install --upgrade pip || { echo "خطا در به‌روزرسانی pip"; exit 1; }
 pip install -r requirements.txt || { echo "خطا در نصب وابستگی‌ها"; exit 1; }
 
-# تنظیم دسترسی فایل‌ها و پوشه‌ها
-echo "تنظیم دسترسی‌ها..."
+# تنظیم دسترسی‌ها
 chmod -R 755 $PROJECT_DIR || { echo "خطا در تنظیم دسترسی‌ها"; exit 1; }
 
 # نصب و پیکربندی Xray
@@ -84,8 +90,8 @@ Restart=always
 WantedBy=multi-user.target
 EOL
 
-# ایجاد کانفیگ پیش‌فرض برای Xray
-echo "ایجاد کانفیگ پیش‌فرض Xray..."
+# ایجاد فایل کانفیگ Xray
+echo "ایجاد فایل کانفیگ Xray..."
 mkdir -p /usr/local/etc/xray || { echo "خطا در ایجاد دایرکتوری کانفیگ Xray"; exit 1; }
 cat <<EOL > /usr/local/etc/xray/config.json
 {
@@ -99,9 +105,9 @@ cat <<EOL > /usr/local/etc/xray/config.json
       "settings": {
         "clients": [
           {
-            "id": "UUID-1",
+            "id": "$UUID",
             "level": 0,
-            "email": "test@example.com"
+            "email": "default@example.com"
           }
         ]
       },
@@ -111,8 +117,8 @@ cat <<EOL > /usr/local/etc/xray/config.json
         "tlsSettings": {
           "certificates": [
             {
-              "certificateFile": "/path/to/cert.crt",
-              "keyFile": "/path/to/cert.key"
+              "certificateFile": "/etc/letsencrypt/live/yourdomain.com/fullchain.pem",
+              "keyFile": "/etc/letsencrypt/live/yourdomain.com/privkey.pem"
             }
           ]
         }
@@ -128,25 +134,12 @@ cat <<EOL > /usr/local/etc/xray/config.json
 }
 EOL
 
-# بارگذاری فایل سرویس و راه‌اندازی Xray
-echo "راه‌اندازی سرویس Xray..."
-systemctl daemon-reload
-systemctl enable xray.service
-systemctl start xray.service || { echo "خطا در راه‌اندازی Xray"; exit 1; }
+# دریافت گواهی‌های TLS
+echo "دریافت گواهی‌های TLS..."
+certbot certonly --standalone --agree-tos --email your-email@example.com -d yourdomain.com || { echo "خطا در دریافت گواهی‌های TLS"; exit 1; }
 
-# نصب و پیکربندی WireGuard
-echo "نصب WireGuard..."
-apt install -y wireguard || { echo "خطا در نصب WireGuard"; exit 1; }
-
-# تولید کلیدهای WireGuard
-echo "تولید کلیدهای WireGuard..."
-WG_PRIVATE_KEY=$(wg genkey)
-WG_PUBLIC_KEY=$(echo "$WG_PRIVATE_KEY" | wg pubkey)
-WG_CLIENT_PRIVATE_KEY=$(wg genkey)
-WG_CLIENT_PUBLIC_KEY=$(echo "$WG_CLIENT_PRIVATE_KEY" | wg pubkey)
-
-# ایجاد فایل کانفیگ WireGuard برای سرور
-echo "ایجاد فایل کانفیگ برای سرور WireGuard..."
+# پیکربندی و راه‌اندازی WireGuard
+echo "ایجاد فایل کانفیگ WireGuard..."
 cat <<EOL > /etc/wireguard/wg0.conf
 [Interface]
 PrivateKey = $WG_PRIVATE_KEY
@@ -161,9 +154,7 @@ AllowedIPs = 10.0.0.2/32
 EOL
 
 chmod 600 /etc/wireguard/wg0.conf
-
-# ایجاد فایل کانفیگ WireGuard برای کلاینت
-echo "ایجاد فایل کانفیگ برای کلاینت WireGuard..."
+echo "ایجاد فایل کانفیگ کلاینت WireGuard..."
 cat <<EOL > ~/wg-client.conf
 [Interface]
 PrivateKey = $WG_CLIENT_PRIVATE_KEY
@@ -182,8 +173,12 @@ echo "راه‌اندازی سرویس WireGuard..."
 systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0 || { echo "خطا در راه‌اندازی WireGuard"; exit 1; }
 
-# غیر فعال‌سازی محیط مجازی
-deactivate
+# ریستارت سرویس Xray
+echo "راه‌اندازی سرویس Xray..."
+systemctl daemon-reload
+systemctl enable xray.service
+systemctl start xray.service || { echo "خطا در راه‌اندازی Xray"; exit 1; }
 
-echo "پیکربندی با موفقیت انجام شد!"
-echo "فایل کانفیگ کلاینت WireGuard در مسیر '~/wg-client.conf' ذخیره شد."
+# اتمام نصب
+echo "نصب و پیکربندی با موفقیت انجام شد!"
+echo "فایل‌های کانفیگ در مسیر‌های مربوطه ذخیره شده‌اند."
